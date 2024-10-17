@@ -1,5 +1,6 @@
 import requests
 import json
+from unidecode import unidecode  # Para limpiar caracteres especiales
 
 # URL de la que obtendremos los datos
 url = "https://consumidores.pluxee.cl/locales/cabecera/16?latitude=-33.4569400&longitude=-70.6482700&originLatitude=&originLongitude=&distance=40000&searchField=&category=&notVisited=&favorite=&near=&priceFrom=&priceTo=&open=&pageNumber=&pageSize=&userId=&sortBy=&last=&_=1729102575387"
@@ -12,10 +13,18 @@ if response.status_code == 200:
     # Convierte los datos en formato JSON
     data = response.json()
 
-    # Guarda los datos en un archivo JSON
-    with open('data.json', 'w') as json_file:
-        json.dump(data, json_file, indent=4)
+    # Verifica si los datos son una lista
+    if isinstance(data, list):
+        # Extrae los nombres de los locales y limpia los caracteres especiales
+        locales = [unidecode(local['name']) for local in data]
+    else:
+        # Si 'data' es un diccionario, busca una clave 'locales'
+        locales = [unidecode(local['name']) for local in data.get('locales', [])]
 
-    print("Datos guardados exitosamente en data.json")
+    # Guarda los nombres de los locales en un archivo JSON
+    with open('nombres_locales.json', 'w') as json_file:
+        json.dump(locales, json_file, indent=4)
+
+    print("Nombres de los locales limpiados exitosamente en nombres_locales.json")
 else:
     print(f"Error al hacer la solicitud, código de estado: {response.status_code}")
