@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa de Locales</title>
+    <title>Mapa de Locales con Ruta</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
 
     <style>
         #map {
@@ -18,15 +19,22 @@
     </style>
 </head>
 <body>
-    <h1>Mapa de Locales</h1>
+    <h1>Mapa de Locales con Ruta</h1>
+
+    <label for="start">Punto de Inicio:</label>
+    <input type="text" id="start" placeholder="Ingresa tu punto de inicio">
 
     <select id="selector">
-        <option value="">Seleccione un local</option>
+        <option value="">Seleccione un local como destino</option>
     </select>
     
+    <button id="routeBtn">Calcular Ruta</button>
+
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
 
     <script>
         var map = L.map('map').setView([40.416775, -3.703790], 5); // Coordenadas iniciales (Madrid)
@@ -39,6 +47,7 @@
         let coordenadas = [];  // Para almacenar las coordenadas
         let nombres = [];  // Para almacenar los nombres de los locales
         let marker;  // Para almacenar el marcador actual
+        let routingControl; // Para el control de enrutamiento
 
         // Cargar las coordenadas de los locales desde el archivo coordenadas_locales.json
         fetch('coordenadas_locales.json')
@@ -89,6 +98,44 @@
                 map.setView([coord.lat, coord.lng], 15);  // Centrar el mapa en la ubicación seleccionada
             }
         });
+
+        // Calcular la ruta al hacer clic en el botón
+        document.getElementById('routeBtn').addEventListener('click', function() {
+            const startLocation = document.getElementById('start').value;
+
+            if (marker) {
+                const endCoord = marker.getLatLng();
+                calculateRoute(startLocation, endCoord);
+            } else {
+                alert('Por favor, selecciona un destino.');
+            }
+        });
+
+        // Función para calcular la ruta
+        function calculateRoute(start, end) {
+            // Usar el geocodificador para obtener las coordenadas de la ubicación de inicio
+            const geocoder = L.Control.Geocoder.nominatim();
+            geocoder.geocode(start, function(results) {
+                if (results.length > 0) {
+                    const startLatLng = results[0].center;
+
+                    if (routingControl) {
+                        map.removeControl(routingControl); // Elimina el control de ruta anterior
+                    }
+
+                    // Crea un nuevo control de ruta
+                    routingControl = L.Routing.control({
+                        waypoints: [
+                            L.latLng(startLatLng.lat, startLatLng.lng), // Coordenadas del inicio
+                            end // Coordenadas del destino
+                        ],
+                        routeWhileDragging: true
+                    }).addTo(map);
+                } else {
+                    alert('No se pudo encontrar la ubicación de inicio.');
+                }
+            });
+        }
     </script>
 </body>
 </html>
