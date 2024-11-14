@@ -30,3 +30,6 @@ https://apis.digital.gob.cl/fl/
 
 3.- Cobertura de internet
 https://www.nperf.com/es/map/CL/
+
+# Prueba de funcionamiento
+https://campbeel.github.io/Redes-resilientes/
