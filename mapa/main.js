@@ -1,124 +1,262 @@
-// Crear el mapa centrado en Santiago
-const map = L.map('map').setView([-33.457, -70.649], 13);
+// Crear el mapa centrado en una ubicación predeterminada
+const map = L.map('map').setView([-33.457, -70.649], 13); // Coordenadas de Santiago, Chile
 
-// Agregar capa base
+// Agregar capa base de OpenStreetMap
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: 'Map data © <a href="https://www.openstreetmap.org/">OpenStreetMap contributors'
 }).addTo(map);
 
-// Variables para nodos y conexiones
-let nodos = {};
-let conexiones = [];
-let locales = {};
+// Variables para almacenamiento
+const comunas = {}; // Almacenar capas por comuna
+const localesMarkers = []; // Almacenar marcadores de locales
+let userLocationMarker = null; // Almacenar el marcador de la ubicación del usuario
+let routingControl = null; // Control de ruta
 
-// Cargar GeoJSON de calles (red vial)
-fetch('Api infraestructura/infraestructura.geojson')
-    .then(response => response.json())
-    .then(data => {
-        // Procesar nodos de la red vial
-        data.features.forEach(features => {
-            const osmid = features.properties.osmid;
-            const coords = features.geometry.coordinates;
-            nodos[osmid] = coords;
-
-            // Visualizar nodos en el mapa
-            L.circleMarker([coords[1], coords[0]], {
-                radius: 5,
-                color: 'blue',
-                fillColor: '#3388ff',
-                fillOpacity: 0.8
-            }).bindPopup(`<strong>ID:</strong> ${osmid}`).addTo(map);
-        });
-
-        // Generar conexiones entre nodos de la red vial
-        generarConexiones(nodos, conexiones);
-
-        // Cargar GeoJSON de locales comerciales
-        return fetch('Api metadata/locales.geojson');
-    })
-    .then(response => response.json())
-    .then(data => {
-        // Procesar los locales comerciales
-        data.features.forEach(features => {
-            const localId = features.properties.id;
-            const coords = features.geometry.coordinates;
-            locales[localId] = coords;
-
-            // Conectar el local al nodo más cercano en la red vial
-            const nodoCercano = encontrarNodoMasCercano(coords, nodos);
-            conexiones.push([localId, nodoCercano]);
-
-            // Visualizar locales en el mapa
-            L.marker([coords[1], coords[0]], {
-                icon: L.icon({
-                    iconUrl: 'https://cdn-icons-png.flaticon.com/512/149/149071.png',
-                    iconSize: [25, 25]
-                })
-            }).bindPopup(`<strong>Nombre:</strong> ${features.properties.name}<br>
-                          <strong>Dirección:</strong> ${features.ssproperties.address}`).addTo(map);
-        });
-
-        console.log("Locales conectados al grafo.");
-    })
-    .catch(error => console.error("Error cargando GeoJSON:", error));
-
-// Función para generar conexiones entre nodos de la red vial
-function generarConexiones(nodos, conexiones) {
-    const ids = Object.keys(nodos);
-    for (let i = 0; i < ids.length; i++) {
-        for (let j = i + 1; j < ids.length; j++) {
-            const id1 = ids[i];
-            const id2 = ids[j];
-            const distancia = calcularDistancia(nodos[id1], nodos[id2]);
-
-            // Establecer umbral para crear conexiones
-            if (distancia < 500) { // 500 metros
-                conexiones.push([id1, id2]);
+function obtenerUbicacionUsuario() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                ubicarUsuarioEnMapa(latitude, longitude);
+            },
+            (error) => {
+                console.error('Error al obtener la ubicación del usuario:', error.message);
+                solicitarUbicacionManual();
             }
-        }
+        );
+    } else {
+        alert('La geolocalización no está soportada en este navegador.');
+        solicitarUbicacionManual();
     }
 }
 
-// Función para calcular la distancia entre dos coordenadas
-function calcularDistancia(coord1, coord2) {
-    const [lon1, lat1] = coord1;
-    const [lon2, lat2] = coord2;
+// Función para solicitar la ubicación manualmente
+function solicitarUbicacionManual() {
+    const latitud = parseFloat(prompt('Ingresa tu latitud:', '-33.457'));
+    const longitud = parseFloat(prompt('Ingresa tu longitud:', '-70.649'));
 
-    const R = 6371e3; // Radio de la Tierra en metros
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c; // Distancia en metros
+    if (!isNaN(latitud) && !isNaN(longitud)) {
+        ubicarUsuarioEnMapa(latitud, longitud);
+    } else {
+        alert('Coordenadas inválidas. No se pudo establecer tu ubicación.');
+    }
 }
 
-// Función para encontrar el nodo más cercano a un punto dado
-function encontrarNodoMasCercano(coord, nodos) {
-    let nodoCercano = null;
-    let distanciaMinima = Infinity;
+// Función para ubicar al usuario en el mapa
+function ubicarUsuarioEnMapa(latitud, longitud) {
+    // Centrar el mapa en la ubicación del usuario
+    map.setView([latitud, longitud], 15);
 
-    for (const [id, nodoCoord] of Object.entries(nodos)) {
-        const distancia = calcularDistancia(coord, nodoCoord);
-        if (distancia < distanciaMinima) {
-            distanciaMinima = distancia;
-            nodoCercano = id;
-        }
+    // Agregar un marcador para la ubicación del usuario
+    if (userLocationMarker) {
+        map.removeLayer(userLocationMarker); // Eliminar marcador previo
     }
 
-    return nodoCercano;
+    userLocationMarker = L.marker([latitud, longitud], {
+        icon: L.icon({
+            iconUrl: 'https://cdn-icons-png.flaticon.com/512/447/447031.png',
+            iconSize: [30, 30]
+        })
+    }).bindPopup('<strong>Tu ubicación</strong>').addTo(map);
 }
 
-// Escuchar el evento de clic en el mapa para seleccionar un punto de inicio
-map.on('click', function(e) {
-    const lat = e.latlng.lat;
-    const lon = e.latlng.lng;
+// Función para cargar y visualizar un archivo GeoJSON
+function cargarGeoJSON(url, opciones = {}) {
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            // Crear una capa de GeoJSON
+            const capaGeoJSON = L.geoJSON(data, {
+                style: opciones.estilo || { color: 'blue', weight: 2, fillOpacity: 0.2 },
+                onEachFeature: (feature, layer) => {
+                    // Obtener el valor de la comuna
+                    const comuna = feature.properties.Comuna || 'Desconocida';
 
-    const nodoCercano = encontrarNodoMasCercano([lon, lat], nodos);
-    alert(`Nodo más cercano: ${nodoCercano}`);
-});
+                    // Crear la capa de la comuna si no existe
+                    if (!comunas[comuna]) {
+                        comunas[comuna] = {
+                            layer: L.layerGroup(),
+                            polygon: layer.getBounds() // Obtener el polígono de la comuna
+                        };
+                    }
+
+                    // Agregar el elemento a la capa de la comuna
+                    comunas[comuna].layer.addLayer(layer);
+
+                    // Agregar popup con propiedades
+                    const propiedades = Object.entries(feature.properties || {})
+                        .map(([key, value]) => `<strong>${key}:</strong> ${value}`)
+                        .join('<br>');
+                    layer.bindPopup(`
+                        <strong>Comuna:</strong> ${comuna}<br>
+                        ${propiedades || 'Sin propiedades adicionales'}
+                    `);
+                }
+            });
+
+            // Las capas de comunas no se agregan al mapa inicialmente
+            crearFiltroComunas();
+        })
+        .catch(error => console.error(`Error al cargar el archivo GeoJSON: ${url}`, error));
+}
+
+// Función para filtrar los locales por comuna
+function filtrarLocales(comuna) {
+    // Eliminar todos los marcadores del mapa
+    localesMarkers.forEach(({ marker }) => map.removeLayer(marker));
+
+    // Si la comuna está habilitada, mostrar los locales dentro de su polígono
+    if (comunas[comuna]) {
+        const { polygon } = comunas[comuna];
+
+        localesMarkers.forEach(({ marker, coordinates }) => {
+            const latlng = L.latLng(coordinates[1], coordinates[0]);
+            if (polygon.contains(latlng)) {
+                marker.addTo(map); // Agregar el marcador al mapa si está dentro del polígono
+            }
+        });
+    }
+}
+
+// Función para crear el filtro por comuna
+function crearFiltroComunas() {
+    const selector = document.getElementById('filtro-comunas');
+    selector.innerHTML = ''; // Limpiar contenido previo
+
+    // Ordenar las comunas alfabéticamente
+    const comunasOrdenadas = Object.keys(comunas).sort();
+
+    comunasOrdenadas.forEach(comuna => {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = comuna;
+        checkbox.checked = false; // Inicia deshabilitada
+
+        const label = document.createElement('label');
+        label.htmlFor = comuna;
+        label.textContent = comuna;
+
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+                comunas[comuna].layer.addTo(map); // Mostrar capa
+                filtrarLocales(comuna); // Filtrar locales dentro de la comuna
+            } else {
+                map.removeLayer(comunas[comuna].layer); // Ocultar capa
+                localesMarkers.forEach(({ marker }) => map.removeLayer(marker)); // Eliminar los marcadores
+            }
+        });
+
+        selector.appendChild(checkbox);
+        selector.appendChild(label);
+        selector.appendChild(document.createElement('br'));
+    });
+}
+
+// Función para cargar los locales
+function cargarLocales(url) {
+    fetch(url)
+        .then((response) => response.json())
+        .then((data) => {
+            // Procesar cada local
+            data.features.forEach((feature) => {
+                const { coordinates } = feature.geometry;
+                const { id, name, address } = feature.properties;
+
+                // Crear un marcador para el local
+                const marker = L.marker([coordinates[1], coordinates[0]], {
+                    icon: L.icon({
+                        iconUrl: 'https://cdn-icons-png.flaticon.com/512/149/149071.png',
+                        iconSize: [25, 25]
+                    })
+                }).bindPopup(`
+                    <strong>Nombre:</strong> ${name}<br>
+                    <strong>Dirección:</strong> ${address}
+                `);
+
+                // Agregar el marcador al mapa
+                marker.addTo(map);
+
+                // Almacenar el marcador
+                localesMarkers.push({
+                    id,
+                    name,
+                    address,
+                    coordinates,
+                    marker
+                });
+            });
+
+            // Actualizar el selector con los locales cargados
+            actualizarSelectorLocales();
+        })
+        .catch((error) => console.error(`Error al cargar los locales: ${url}`, error));
+}
+
+// Función para actualizar el selector con los locales en localesMarkers
+function actualizarSelectorLocales() {
+    const selectorLocales = document.getElementById('locales');
+    selectorLocales.innerHTML = '<option value="">-- Selecciona un local --</option>'; // Resetear contenido
+
+    localesMarkers.forEach((local) => {
+        const option = document.createElement('option');
+        option.value = local.id;
+        option.textContent = local.name;
+        selectorLocales.appendChild(option);
+    });
+}
+
+// Función para calcular la ruta
+function calcularRuta() {
+    const selector = document.getElementById('locales');
+    const localSeleccionado = localesMarkers.find(
+        (local) => local.id === parseInt(selector.value)
+    );
+
+    if (!localSeleccionado) {
+        alert('Por favor, selecciona un local.');
+        return;
+    }
+
+    if (!userLocationMarker) {
+        alert('Por favor, establece tu ubicación primero.');
+        return;
+    }
+
+    const [localLng, localLat] = localSeleccionado.coordinates;
+
+    // Eliminar cualquier ruta previa
+    if (routingControl) {
+        map.removeControl(routingControl);
+    }
+
+    // Agregar una nueva ruta
+    routingControl = L.Routing.control({
+        waypoints: [
+            userLocationMarker.getLatLng(), // Ubicación del usuario
+            L.latLng(localLat, localLng) // Ubicación del local
+        ],
+        routeWhileDragging: true,
+        createMarker: function (i, waypoint, n) {
+            const icons = [
+                'https://cdn-icons-png.flaticon.com/512/447/447031.png', // Usuario
+                'https://cdn-icons-png.flaticon.com/512/149/149071.png' // Local
+            ];
+            return L.marker(waypoint.latLng, {
+                icon: L.icon({
+                    iconUrl: icons[i],
+                    iconSize: [30, 30]
+                })
+            });
+        }
+    }).addTo(map);
+}
+
+// Agregar evento al botón de calcular ruta
+document.getElementById('calcularRuta').addEventListener('click', calcularRuta);
+
+// Cargar los archivos GeoJSON
+cargarGeoJSON('https://raw.githubusercontent.com/caracena/chile-geojson/refs/heads/master/13.geojson'); // Archivo de comunas
+cargarLocales('Api metadata/locales.geojson'); // Archivo de locales
+
+// Llamar a la función para obtener la ubicación del usuario
+obtenerUbicacionUsuario();
